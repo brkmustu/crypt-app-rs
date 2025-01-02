@@ -1,0 +1,9 @@
+*.min.js linguist-vendored
+*.lock linguist-vendored
+*.svg linguist-generated
+*.png linguist-generated
+
+vendor/* linguist-vendored
+dist/* linguist-generated
+
+frontend/src/assets/style.css linguist-generated
