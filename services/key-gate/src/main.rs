@@ -1,4 +1,4 @@
-use actix_web::{web, App, HttpServer, post, get, HttpResponse};
+use actix_web::{web, App, HttpServer, post, HttpResponse, http};
 use actix_cors::Cors;
 use serde::{Deserialize, Serialize};
 use jsonwebtoken::{encode, EncodingKey, Header};
@@ -30,16 +30,6 @@ struct Claims {
     iat: i64,
 }
 
-#[get("/auth/public-key")]
-async fn get_public_key(data: web::Data<AppState>) -> HttpResponse {
-    let crypt_service = data.crypt_service.lock().unwrap();
-    let public_key = crypt_service.get_public_key();
-    
-    HttpResponse::Ok().json(serde_json::json!({
-        "public_key": public_key
-    }))
-}
-
 #[post("/auth/login")]
 async fn login(
     req: web::Json<LoginRequest>,
@@ -62,14 +52,20 @@ async fn login(
         let crypt_service = data.crypt_service.lock().unwrap();
         let public_key = crypt_service.get_public_key();
 
-        HttpResponse::Ok().json(LoginResponse { 
-            token,
-            public_key
-        })
+        HttpResponse::Ok()
+            .append_header(("Access-Control-Allow-Origin", "http://localhost:5173"))
+            .append_header(("Access-Control-Allow-Credentials", "true"))
+            .json(LoginResponse { 
+                token,
+                public_key
+            })
     } else {
-        HttpResponse::Unauthorized().json(serde_json::json!({
-            "error": "Invalid username or password"
-        }))
+        HttpResponse::Unauthorized()
+            .append_header(("Access-Control-Allow-Origin", "http://localhost:5173"))
+            .append_header(("Access-Control-Allow-Credentials", "true"))
+            .json(serde_json::json!({
+                "error": "Invalid username or password"
+            }))
     }
 }
 
@@ -81,17 +77,22 @@ async fn main() -> std::io::Result<()> {
     });
 
     HttpServer::new(move || {
-        let cors = Cors::default()
-            .allow_any_origin()
-            .allow_any_method()
-            .allow_any_header()
+        let cors = Cors::permissive()
+            .allowed_origin("http://localhost:5173")
+            .allowed_methods(vec!["GET", "POST"])
+            .allowed_headers(vec![
+                http::header::AUTHORIZATION,
+                http::header::ACCEPT,
+                http::header::CONTENT_TYPE,
+            ])
+            .expose_headers(["content-type", "authorization"])
+            .max_age(3600)
             .supports_credentials();
 
         App::new()
-            .app_data(app_state.clone())
             .wrap(cors)
+            .app_data(app_state.clone())
             .service(login)
-            .service(get_public_key)
     })
     .bind("127.0.0.1:8082")?
     .run()

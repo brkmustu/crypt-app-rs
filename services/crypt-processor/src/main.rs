@@ -1,38 +1,19 @@
+mod error;
+
 use lapin::{Connection, ConnectionProperties, options::*, types::FieldTable};
 use tokio_tungstenite::connect_async;
 use futures_util::{StreamExt, SinkExt};
 use serde::{Deserialize, Serialize};
-use backend::CryptService;
+use backend::crypt::{CryptService, EncryptedData};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use error::{ProcessError, ProcessResponse};
 
 #[derive(Deserialize, Serialize)]
 struct CryptMessage {
     id: String,
     operation: String,
     data: String,
-}
-
-#[derive(Debug)]
-enum ProcessError {
-    CryptError(String),
-    FormatError(String),
-}
-
-impl From<ProcessError> for String {
-    fn from(error: ProcessError) -> Self {
-        match error {
-            ProcessError::CryptError(msg) => format!("Şifreleme hatası: {}", msg),
-            ProcessError::FormatError(msg) => format!("Format hatası: {}", msg),
-        }
-    }
-}
-
-#[derive(Serialize)]
-struct ProcessResponse {
-    success: bool,
-    result: Option<String>,
-    error: Option<String>,
 }
 
 async fn process_message(message: CryptMessage, crypt_service: &CryptService) -> ProcessResponse {
@@ -43,40 +24,36 @@ async fn process_message(message: CryptMessage, crypt_service: &CryptService) ->
     };
 
     match result {
-        Ok(data) => ProcessResponse {
-            success: true,
-            result: Some(data),
-            error: None,
-        },
-        Err(err) => ProcessResponse {
-            success: false,
-            result: None,
-            error: Some(err.into()),
-        },
+        Ok(data) => ProcessResponse::success(data),
+        Err(err) => ProcessResponse::error(err),
     }
 }
 
 async fn encrypt_data(crypt_service: &CryptService, data: &str) -> Result<String, ProcessError> {
-    // RSA ile şifrele
-    let encrypted = crypt_service.decrypt_data(data)
-        .map_err(|e| ProcessError::CryptError(e))?;
-
-    Ok(encrypted)
+    let encrypted = crypt_service.encrypt_data(data)
+        .map_err(|e| ProcessError::CryptError(e.to_string()))?;
+    
+    serde_json::to_string(&encrypted)
+        .map_err(|e| ProcessError::SerializationError(e.to_string()))
 }
 
-async fn decrypt_data(crypt_service: &CryptService, data: &str) -> Result<String, ProcessError> {
-    // RSA ile çöz
-    let decrypted = crypt_service.decrypt_data(data)
-        .map_err(|e| ProcessError::CryptError(e))?;
-
-    Ok(decrypted)
+async fn decrypt_data(crypt_service: &CryptService, encrypted_str: &str) -> Result<String, ProcessError> {
+    let encrypted_data: EncryptedData = serde_json::from_str(encrypted_str)
+        .map_err(|e| ProcessError::SerializationError(e.to_string()))?;
+    
+    crypt_service.decrypt_data(&encrypted_data)
+        .map_err(|e| ProcessError::CryptError(e.to_string()))
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = "amqp://cryptuser:cryptpass@localhost:5672";
-    let conn = Connection::connect(addr, ConnectionProperties::default()).await?;
-    let channel = conn.create_channel().await?;
+    let conn = Connection::connect(addr, ConnectionProperties::default())
+        .await
+        .map_err(|e| ProcessError::QueueError(e.to_string()))?;
+    
+    let channel = conn.create_channel().await
+        .map_err(|e| ProcessError::QueueError(e.to_string()))?;
     
     let crypt_service = Arc::new(CryptService::new());
     
@@ -85,10 +62,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "crypt_queue",
         QueueDeclareOptions::default(),
         FieldTable::default()
-    ).await?;
+    ).await
+    .map_err(|e| ProcessError::QueueError(e.to_string()))?;
     
     // WebSocket bağlantısı
-    let (ws_stream, _) = connect_async("ws://localhost:8081").await?;
+    let (ws_stream, _) = connect_async("ws://localhost:8081").await
+        .map_err(|e| ProcessError::WebSocketError(e.to_string()))?;
+    
     let (ws_sender, _ws_receiver) = ws_stream.split();
     let ws_sender = Arc::new(Mutex::new(ws_sender));
     
@@ -99,7 +79,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "crypt_consumer",
         BasicConsumeOptions::default(),
         FieldTable::default(),
-    ).await?;
+    ).await
+    .map_err(|e| ProcessError::QueueError(e.to_string()))?;
     
     let crypt_service_clone = crypt_service.clone();
     let ws_sender_clone = ws_sender.clone();
@@ -120,7 +101,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let message: CryptMessage = match serde_json::from_slice(&delivery.data) {
                 Ok(m) => m,
                 Err(e) => {
-                    eprintln!("JSON ayrıştırma hatası: {}", e);
+                    let error_response = ProcessResponse::error(
+                        ProcessError::SerializationError(e.to_string())
+                    );
+                    if let Ok(response_json) = serde_json::to_string(&error_response) {
+                        if let Err(e) = ws_sender.lock().await.send(response_json.into()).await {
+                            eprintln!("WebSocket gönderme hatası: {}", e);
+                        }
+                    }
                     if let Err(e) = delivery.reject(BasicRejectOptions::default()).await {
                         eprintln!("Mesaj reddetme hatası: {}", e);
                     }
@@ -129,16 +117,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
 
             let response = process_message(message, &crypt_service).await;
-            let response_json = match serde_json::to_string(&response) {
-                Ok(r) => r,
-                Err(e) => {
-                    eprintln!("JSON serileştirme hatası: {}", e);
-                    return;
-                }
-            };
-
-            if let Err(e) = ws_sender.lock().await.send(response_json.into()).await {
-                eprintln!("WebSocket gönderme hatası: {}", e);
+            match serde_json::to_string(&response) {
+                Ok(response_json) => {
+                    if let Err(e) = ws_sender.lock().await.send(response_json.into()).await {
+                        eprintln!("WebSocket gönderme hatası: {}", e);
+                    }
+                },
+                Err(e) => eprintln!("JSON serileştirme hatası: {}", e),
             }
 
             if let Err(e) = delivery.ack(BasicAckOptions::default()).await {

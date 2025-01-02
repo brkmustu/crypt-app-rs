@@ -51,61 +51,64 @@ const handleLogin = async () => {
     <!-- Background Image Container -->
     <div 
       class="absolute inset-0 z-0"
-      style="background: url('https://images.unsplash.com/photo-1472152083436-a6eede6efad9?auto=format&fit=crop&w=2000&q=80') center/cover no-repeat"
+      style="background: url('https://images.unsplash.com/photo-1734597949864-0ee6637b0c3f?q=80&w=1934&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D?auto=format&fit=crop&w=2000&q=80') center/cover no-repeat"
     >
       <!-- Overlay -->
       <div class="absolute inset-0 bg-gradient-to-b from-[rgba(0,0,0,0.2)] to-[rgba(76,29,29,0.4)]"></div>
     </div>
 
     <!-- Content Container -->
-    <div class="relative z-10 h-full w-full flex flex-col items-center justify-center px-4">
-      <!-- Logo -->
-      <div class="mb-20">
-        <div class="w-20 h-20 relative">
-          <div class="absolute -top-3 left-1/2 transform -translate-x-1/2">
-            <div class="w-6 h-3 bg-white/10 rounded-t-full"></div>
+    <div class="relative z-10 min-h-screen w-full flex flex-col items-center justify-center px-4">
+      <!-- Logo ve Form Container -->
+      <div class="flex flex-col items-center justify-center -mt-20">
+        <!-- Logo -->
+        <div class="mb-20">
+          <div class="w-20 h-20 relative">
+            <div class="absolute -top-3 left-1/2 transform -translate-x-1/2">
+              <div class="w-6 h-3 bg-white/10 rounded-t-full"></div>
+            </div>
+            <div class="w-full h-full bg-white/10 backdrop-blur-sm flex items-center justify-center rounded-xl">
+              <span class="text-4xl font-bold text-white">N</span>
+            </div>
           </div>
-          <div class="w-full h-full bg-white/10 backdrop-blur-sm flex items-center justify-center rounded-xl">
-            <span class="text-4xl font-bold text-white">N</span>
+        </div>
+
+        <!-- Form Container -->
+        <div class="w-full max-w-[400px] space-y-5">
+          <div class="relative">
+            <i class="pi pi-user absolute left-6 top-1/2 -translate-y-1/2 text-white/40 text-xl z-10"></i>
+            <InputText
+              v-model="username"
+              placeholder="User Name..."
+              class="w-full"
+              :class="{'p-invalid': !username && loading}"
+            />
           </div>
-        </div>
-      </div>
+          
+          <div class="relative">
+            <i class="pi pi-lock absolute left-6 top-1/2 -translate-y-1/2 text-white/40 text-xl z-10"></i>
+            <InputText
+              v-model="password"
+              type="password"
+              placeholder="Password..."
+              class="w-full"
+              :class="{'p-invalid': !password && loading}"
+              @keyup.enter="handleLogin"
+            />
+          </div>
 
-      <!-- Form Container -->
-      <div class="w-full max-w-[400px] space-y-5">
-        <div class="relative">
-          <i class="pi pi-user absolute left-6 top-1/2 -translate-y-1/2 text-white/40 text-xl z-10"></i>
-          <InputText
-            v-model="username"
-            placeholder="User Name..."
-            class="w-full"
-            :class="{'p-invalid': !username && loading}"
+          <Button
+            type="submit"
+            :loading="loading"
+            label="Login"
+            class="w-full !mt-10"
+            @click="handleLogin"
           />
-        </div>
-        
-        <div class="relative">
-          <i class="pi pi-lock absolute left-6 top-1/2 -translate-y-1/2 text-white/40 text-xl z-10"></i>
-          <InputText
-            v-model="password"
-            type="password"
-            placeholder="Password..."
-            class="w-full"
-            :class="{'p-invalid': !password && loading}"
-            @keyup.enter="handleLogin"
-          />
-        </div>
 
-        <Button
-          type="submit"
-          :loading="loading"
-          label="Login"
-          class="w-full !mt-10"
-          @click="handleLogin"
-        />
-
-        <div class="flex justify-between text-[13px] text-[#6366f1] pt-6 font-medium tracking-wide">
-          <a href="#" class="hover:text-white/90 transition-colors">CREATE ACCOUNT</a>
-          <a href="#" class="hover:text-white/90 transition-colors">NEED HELP?</a>
+          <div class="flex justify-between text-[13px] text-primary-500 pt-6 font-semibold tracking-wide">
+            <a href="#" class="hover:text-primary-600 transition-colors">CREATE ACCOUNT</a>
+            <a href="#" class="hover:text-primary-600 transition-colors">NEED HELP?</a>
+          </div>
         </div>
       </div>
     </div>
@@ -145,6 +148,11 @@ const handleLogin = async () => {
     box-shadow: none !important;
     outline: none !important;
     transform: translateY(0) !important;
+  }
+
+  /* Input dolu olduğunda arka plan rengini değiştir */
+  &:not(:placeholder-shown) {
+    background: rgba(255, 255, 255, 0.15) !important;
   }
 
   &.p-invalid {

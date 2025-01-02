@@ -1,89 +1,48 @@
-use actix_web::{error, post, web, App, HttpResponse, HttpServer};
-use serde::{Deserialize, Serialize};
-use backend::CryptService;
-use std::fmt;
-use std::sync::Mutex;
+mod middleware;
+
+use actix_web::{post, web, App, HttpServer, Result};
+use backend::crypt::{CryptService, EncryptedData};
+use std::sync::{Arc, Mutex};
 use actix_cors::Cors;
+use middleware::ServiceError;
 
 struct AppState {
-    crypt_service: Mutex<CryptService>,
-}
-
-#[derive(Debug)]
-enum CryptError {
-    CryptFailed(String),
-}
-
-impl fmt::Display for CryptError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            CryptError::CryptFailed(msg) => write!(f, "Şifreleme hatası: {}", msg),
-        }
-    }
-}
-
-impl error::ResponseError for CryptError {
-    fn error_response(&self) -> HttpResponse {
-        match self {
-            _ => HttpResponse::InternalServerError().json(ErrorResponse {
-                error: self.to_string(),
-                code: "INTERNAL_ERROR"
-            }),
-        }
-    }
-}
-
-#[derive(Serialize)]
-struct ErrorResponse {
-    error: String,
-    code: &'static str,
-}
-
-#[derive(Deserialize)]
-struct CryptRequest {
-    data: String,
-}
-
-#[derive(Serialize)]
-struct CryptResponse {
-    result: String,
+    crypt_service: Arc<Mutex<CryptService>>,
 }
 
 #[post("/encrypt")]
 async fn encrypt(
-    req: web::Json<CryptRequest>,
-    data: web::Data<AppState>
-) -> Result<HttpResponse, CryptError> {
-    let crypt_service = data.crypt_service.lock().unwrap();
+    data: web::Json<String>,
+    state: web::Data<AppState>
+) -> Result<web::Json<EncryptedData>, ServiceError> {
+    let crypt_service = state.crypt_service.lock()
+        .map_err(|e| ServiceError::ServiceLockError(e.to_string()))?;
     
-    let encrypted = crypt_service.encrypt_data(&req.data)
-        .map_err(|e| CryptError::CryptFailed(e))?;
+    let encrypted = crypt_service.encrypt_data(&data.into_inner())
+        .map_err(|e| ServiceError::EncryptionError(e.to_string()))?;
     
-    Ok(HttpResponse::Ok().json(CryptResponse {
-        result: encrypted
-    }))
+    Ok(web::Json(encrypted))
 }
 
 #[post("/decrypt")]
 async fn decrypt(
-    req: web::Json<CryptRequest>,
-    data: web::Data<AppState>
-) -> Result<HttpResponse, CryptError> {
-    let crypt_service = data.crypt_service.lock().unwrap();
+    encrypted: web::Json<EncryptedData>,
+    state: web::Data<AppState>
+) -> Result<web::Json<String>, ServiceError> {
+    let crypt_service = state.crypt_service.lock()
+        .map_err(|e| ServiceError::ServiceLockError(e.to_string()))?;
     
-    let decrypted = crypt_service.decrypt_data(&req.data)
-        .map_err(|e| CryptError::CryptFailed(e))?;
+    let decrypted = crypt_service.decrypt_data(&encrypted.into_inner())
+        .map_err(|e| ServiceError::DecryptionError(e.to_string()))?;
     
-    Ok(HttpResponse::Ok().json(CryptResponse {
-        result: decrypted
-    }))
+    Ok(web::Json(decrypted))
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let crypt_service = CryptService::new();
     let app_state = web::Data::new(AppState {
-        crypt_service: Mutex::new(crypt_service),
+        crypt_service: Arc::new(Mutex::new(crypt_service)),
     });
 
     HttpServer::new(move || {

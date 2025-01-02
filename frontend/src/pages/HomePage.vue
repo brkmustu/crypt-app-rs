@@ -35,9 +35,7 @@ const handleEncrypt = async () => {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${authStore.token}`
       },
-      body: JSON.stringify({
-        data: inputMessage.value  // Direkt mesajı gönder
-      })
+      body: JSON.stringify(inputMessage.value)
     });
 
     if (!response.ok) {
@@ -46,7 +44,7 @@ const handleEncrypt = async () => {
     }
     
     const data = await response.json();
-    outputMessage.value = data.result;
+    outputMessage.value = JSON.stringify(data);
     toast.add({ severity: 'success', summary: 'Başarılı', detail: 'Mesaj şifrelendi', life: 3000 });
   } catch (error) {
     console.error('Şifreleme hatası:', error);
@@ -69,16 +67,21 @@ const handleDecrypt = async () => {
 
   loading.value = true;
   try {
-    // Şifre çözme isteği gönder
+    let encryptedData;
+    try {
+      // Gelen string'i JSON objesine çevir
+      encryptedData = JSON.parse(inputMessage.value);
+    } catch {
+      throw new Error('Geçersiz şifreli mesaj formatı');
+    }
+
     const response = await fetch('http://localhost:8081/decrypt', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${authStore.token}`
       },
-      body: JSON.stringify({
-        data: inputMessage.value  // Direkt şifreli metni gönder
-      })
+      body: JSON.stringify(encryptedData)
     });
 
     if (!response.ok) {
@@ -87,7 +90,7 @@ const handleDecrypt = async () => {
     }
     
     const data = await response.json();
-    outputMessage.value = data.result;
+    outputMessage.value = data;
     toast.add({ severity: 'success', summary: 'Başarılı', detail: 'Mesaj çözüldü', life: 3000 });
   } catch (error) {
     console.error('Şifre çözme hatası:', error);
@@ -205,14 +208,18 @@ const copyToClipboard = async () => {
 <style scoped>
 .p-button {
   margin-left: 0.5rem;
+  border-radius: 0.5rem !important;
+  height: 40px !important;
+  padding: 0 1.5rem !important;
 }
 
 :deep(.p-inputtext),
 :deep(.p-textarea) {
   width: 100%;
-  border-radius: 0.5rem;
+  border-radius: 0.5rem !important;
   color: #374151 !important;
   background-color: #fff !important;
+  transition: all 0.2s ease-in-out;
 }
 
 :deep(.p-textarea):disabled {
@@ -228,5 +235,26 @@ const copyToClipboard = async () => {
 :deep(.p-textarea[readonly]) {
   background-color: #f8fafc !important;
   border-color: #e2e8f0 !important;
+}
+
+:deep(.p-button.p-button-primary) {
+  background: theme('colors.primary.500') !important;
+  border-color: theme('colors.primary.500') !important;
+}
+
+:deep(.p-button.p-button-primary:hover) {
+  background: theme('colors.primary.600') !important;
+  border-color: theme('colors.primary.600') !important;
+}
+
+:deep(.p-button.p-button-secondary) {
+  background: #fff !important;
+  border-color: #e2e8f0 !important;
+  color: #64748b !important;
+}
+
+:deep(.p-button.p-button-secondary:hover) {
+  background: #f8fafc !important;
+  border-color: #cbd5e1 !important;
 }
 </style> 
