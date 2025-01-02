@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  rabbitmq:
+    image: rabbitmq:4.0.5-management-alpine
+    container_name: crypt_rabbitmq
+    ports:
+      - "5672:5672"   # AMQP protokolü için
+      - "15672:15672" # Yönetim arayüzü için
+    environment:
+      - RABBITMQ_DEFAULT_USER=cryptuser
+      - RABBITMQ_DEFAULT_PASS=cryptpass
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  rabbitmq_data: 

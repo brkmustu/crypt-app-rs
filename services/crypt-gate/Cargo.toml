@@ -1,0 +1,13 @@
+[package]
+name = "crypt-gate"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+backend = { path = "../../backend" }
+actix-web = { version = "4.4.1", features = ["macros"] }
+actix-cors = "0.7.0"
+serde = { version = "1.0", features = ["derive"] }
+hex = "0.4"
+serde_json = "1.0.134"
+base64 = "0.22.1"

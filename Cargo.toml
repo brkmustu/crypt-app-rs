@@ -1,0 +1,3 @@
+[workspace]
+resolver = "2"
+members = ["backend", "services/crypt-gate", "services/crypt-processor", "services/jwt-validator", "services/key-gate"]
