@@ -1,55 +1,130 @@
 mod middleware;
 
-use actix_web::{post, web, App, HttpServer, Result};
-use backend::crypt::{CryptService, EncryptedData};
-use std::sync::{Arc, Mutex};
+use actix_web::{http, post, web, App, HttpResponse, HttpServer};
+use backend::crypt::EncryptedData;
+use std::sync::Arc;
 use actix_cors::Cors;
 use middleware::ServiceError;
+use lapin::{Connection, ConnectionProperties, options::*, types::FieldTable, BasicProperties};
+use serde::{Serialize, Deserialize};
+use uuid::Uuid;
+use serde_json::json;
+
+#[derive(Serialize, Deserialize)]
+struct QueueMessage {
+    id: String,
+    operation: String,
+    data: String,
+}
 
 struct AppState {
-    crypt_service: Arc<Mutex<CryptService>>,
+    amqp_channel: Arc<lapin::Channel>,
 }
+
+const ENCRYPT_QUEUE: &str = "encrypt_queue";
+const DECRYPT_QUEUE: &str = "decrypt_queue";
+const RABBITMQ_URL: &str = "amqp://cryptuser:cryptpass@localhost:5672";
 
 #[post("/encrypt")]
 async fn encrypt(
     data: web::Json<String>,
     state: web::Data<AppState>
-) -> Result<web::Json<EncryptedData>, ServiceError> {
-    let crypt_service = state.crypt_service.lock()
-        .map_err(|e| ServiceError::ServiceLockError(e.to_string()))?;
+) -> Result<HttpResponse, ServiceError> {
+    let message_id = Uuid::new_v4().to_string();
     
-    let encrypted = crypt_service.encrypt_data(&data.into_inner())
-        .map_err(|e| ServiceError::EncryptionError(e.to_string()))?;
-    
-    Ok(web::Json(encrypted))
+    let queue_message = QueueMessage {
+        id: message_id.clone(),
+        operation: "encrypt".to_string(),
+        data: data.into_inner(),
+    };
+
+    let payload = serde_json::to_string(&queue_message)
+        .map_err(|e| ServiceError::SerializationError(e.to_string()))?;
+
+    state.amqp_channel.basic_publish(
+        "",
+        ENCRYPT_QUEUE,
+        BasicPublishOptions::default(),
+        payload.as_bytes(),
+        BasicProperties::default(),
+    )
+    .await
+    .map_err(|e| ServiceError::QueueError(e.to_string()))?;
+
+    Ok(HttpResponse::Accepted().json(json!({
+        "message_id": message_id,
+        "status": "processing"
+    })))
 }
 
 #[post("/decrypt")]
 async fn decrypt(
     encrypted: web::Json<EncryptedData>,
     state: web::Data<AppState>
-) -> Result<web::Json<String>, ServiceError> {
-    let crypt_service = state.crypt_service.lock()
-        .map_err(|e| ServiceError::ServiceLockError(e.to_string()))?;
+) -> Result<HttpResponse, ServiceError> {
+    let message_id = Uuid::new_v4().to_string();
     
-    let decrypted = crypt_service.decrypt_data(&encrypted.into_inner())
-        .map_err(|e| ServiceError::DecryptionError(e.to_string()))?;
-    
-    Ok(web::Json(decrypted))
+    let queue_message = QueueMessage {
+        id: message_id.clone(),
+        operation: "decrypt".to_string(),
+        data: serde_json::to_string(&encrypted.into_inner())
+            .map_err(|e| ServiceError::SerializationError(e.to_string()))?,
+    };
+
+    let payload = serde_json::to_string(&queue_message)
+        .map_err(|e| ServiceError::SerializationError(e.to_string()))?;
+
+    state.amqp_channel.basic_publish(
+        "",
+        DECRYPT_QUEUE,
+        BasicPublishOptions::default(),
+        payload.as_bytes(),
+        BasicProperties::default(),
+    )
+    .await
+    .map_err(|e| ServiceError::QueueError(e.to_string()))?;
+
+    Ok(HttpResponse::Accepted().json(json!({
+        "message_id": message_id,
+        "status": "processing"
+    })))
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let crypt_service = CryptService::new();
+    let conn = Connection::connect(RABBITMQ_URL, ConnectionProperties::default())
+        .await
+        .expect("RabbitMQ bağlantısı başarısız");
+    
+    let channel = conn.create_channel()
+        .await
+        .expect("Kanal oluşturulamadı");
+
+    // Her işlem için ayrı kuyruk tanımlama
+    for queue in [ENCRYPT_QUEUE, DECRYPT_QUEUE] {
+        channel.queue_declare(
+            queue,
+            QueueDeclareOptions::default(),
+            FieldTable::default(),
+        )
+        .await
+        .expect("Kuyruk oluşturulamadı");
+    }
+
     let app_state = web::Data::new(AppState {
-        crypt_service: Arc::new(Mutex::new(crypt_service)),
+        amqp_channel: Arc::new(channel),
     });
 
     HttpServer::new(move || {
-        let cors = Cors::default()
-            .allow_any_origin()
-            .allow_any_method()
-            .allow_any_header()
+        let cors = Cors::permissive()
+            .allowed_origin("http://localhost:5173")
+            .allowed_methods(vec!["GET", "POST"])
+            .allowed_headers(vec![
+                http::header::AUTHORIZATION,
+                http::header::ACCEPT,
+                http::header::CONTENT_TYPE,
+            ])
+            .max_age(3600)
             .supports_credentials();
 
         App::new()

@@ -24,14 +24,14 @@ impl fmt::Display for ProcessError {
 
 impl std::error::Error for ProcessError {}
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct ProcessResponse {
     pub success: bool,
     pub result: Option<String>,
     pub error: Option<ErrorDetail>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct ErrorDetail {
     pub message: String,
     pub code: &'static str,

@@ -11,6 +11,8 @@ pub enum ServiceError {
     EncryptionError(String),
     DecryptionError(String),
     ServiceLockError(String),
+    SerializationError(String),
+    QueueError(String),
 }
 
 impl fmt::Display for ServiceError {
@@ -19,6 +21,8 @@ impl fmt::Display for ServiceError {
             ServiceError::EncryptionError(msg) => write!(f, "Şifreleme hatası: {}", msg),
             ServiceError::DecryptionError(msg) => write!(f, "Çözme hatası: {}", msg),
             ServiceError::ServiceLockError(msg) => write!(f, "Servis kilidi hatası: {}", msg),
+            ServiceError::SerializationError(msg) => write!(f, "Serileştirme hatası: {}", msg),
+            ServiceError::QueueError(msg) => write!(f, "Kuyruk hatası: {}", msg),
         }
     }
 }
@@ -31,6 +35,8 @@ impl ResponseError for ServiceError {
             ServiceError::EncryptionError(msg) => (msg.to_string(), "ENCRYPTION_ERROR"),
             ServiceError::DecryptionError(msg) => (msg.to_string(), "DECRYPTION_ERROR"),
             ServiceError::ServiceLockError(msg) => (msg.to_string(), "SERVICE_LOCK_ERROR"),
+            ServiceError::SerializationError(msg) => (msg.to_string(), "SERIALIZATION_ERROR"),
+            ServiceError::QueueError(msg) => (msg.to_string(), "QUEUE_ERROR"),
         };
 
         HttpResponse::build(self.status_code())
