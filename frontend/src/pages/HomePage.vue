@@ -3,6 +3,8 @@ import { ref, onMounted, onUnmounted } from 'vue';
 import { useAuthStore } from '../stores/auth';
 import { useRouter } from 'vue-router';
 import { useToast } from 'primevue/usetoast';
+import { useWebSocket } from '../composables/useWebSocket';
+import { CryptService } from '../services/cryptService';
 import InputText from 'primevue/inputtext';
 import Button from 'primevue/button';
 import Textarea from 'primevue/textarea';
@@ -10,98 +12,24 @@ import Textarea from 'primevue/textarea';
 const authStore = useAuthStore();
 const router = useRouter();
 const toast = useToast();
-
-const inputMessage = ref('');
-const outputMessage = ref('');
-const loading = ref(false);
-const ws = ref(null);
-const messageCallbacks = new Map(); // Kalıcı callback storage
-
-onMounted(() => {
-  // WebSocket bağlantısı
-  connectWebSocket();
-});
-
-const connectWebSocket = () => {
-  if (ws.value?.readyState === WebSocket.OPEN) {
-    console.log('WebSocket zaten bağlı');
-    return;
-  }
-
-  console.log('WebSocket bağlantısı kuruluyor...');
-  ws.value = new WebSocket('ws://localhost:8083/ws');
-  
-  ws.value.onopen = () => {
-    console.log('WebSocket bağlantısı açıldı');
-  };
-
-  ws.value.onmessage = (event) => {
-    try {
-      const response = JSON.parse(event.data);
-      console.log('WebSocket mesajı alındı:', response);
-      
-      const callback = messageCallbacks.get(response.message_id);
-      if (callback) {
-        console.log('Callback çalıştırılıyor, message_id:', response.message_id);
-        callback({
-          success: response.success,
-          data: response.data,
-          error: response.error
-        });
-        messageCallbacks.delete(response.message_id);
-      }
-    } catch (error) {
-      console.error('WebSocket mesaj işleme hatası:', error, 'Raw data:', event.data);
-    }
-  };
-
-  ws.value.onclose = (event) => {
-    console.log('WebSocket bağlantısı kapandı, kod:', event.code, 'neden:', event.reason);
-    if (!event.wasClean) {
-      console.log('Bağlantı beklenmedik şekilde kapandı, yeniden bağlanılıyor...');
-      setTimeout(connectWebSocket, 1000);
-    }
-  };
-
-  ws.value.onerror = (error) => {
-    console.error('WebSocket hatası:', error);
-  };
-};
-
-const ensureWebSocketConnection = async () => {
-  if (!ws.value || ws.value.readyState !== WebSocket.OPEN) {
-    console.log('WebSocket bağlantısı kuruluyor...');
-    connectWebSocket();
-    
-    // Bağlantının kurulmasını bekle
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('WebSocket bağlantı zaman aşımı'));
-      }, 5000);
-
-      const checkConnection = setInterval(() => {
-        if (ws.value?.readyState === WebSocket.OPEN) {
-          clearInterval(checkConnection);
-          clearTimeout(timeout);
-          resolve();
-        }
-      }, 100);
-    });
-  }
-};
-
-onUnmounted(() => {
-  if (ws.value) {
-    ws.value.onclose = null; // Otomatik yeniden bağlanmayı devre dışı bırak
-    ws.value.close();
-    ws.value = null;
-  }
-});
+const { connectWebSocket, waitForMessage, disconnect, ensureConnection } = useWebSocket();
 
 const handleLogout = () => {
   authStore.clearToken();
   router.push('/login');
 };
+
+const inputMessage = ref('');
+const outputMessage = ref('');
+const loading = ref(false);
+
+onMounted(() => {
+  connectWebSocket();
+});
+
+onUnmounted(() => {
+  disconnect();
+});
 
 const handleEncrypt = async () => {
   if (!inputMessage.value) {
@@ -111,42 +39,9 @@ const handleEncrypt = async () => {
 
   loading.value = true;
   try {
-    await ensureWebSocketConnection();
-
-    const response = await fetch('http://localhost:8081/encrypt', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authStore.token}`
-      },
-      body: JSON.stringify(inputMessage.value)
-    });
-
-    if (!response.ok) {
-      throw new Error('Şifreleme başarısız');
-    }
-    
-    const { message_id } = await response.json();
-    console.log('Mesaj ID:', message_id); // Debug için
-
-    // WebSocket üzerinden cevabı bekle
-    await new Promise((resolve, reject) => {
-      const timeoutId = setTimeout(() => {
-        messageCallbacks.delete(message_id);
-        reject(new Error('İşlem zaman aşımına uğradı'));
-      }, 30000);
-
-      messageCallbacks.set(message_id, (result) => {
-        clearTimeout(timeoutId);
-        if (result.error) {
-          reject(new Error(result.error));
-        } else {
-          outputMessage.value = result.data;
-          resolve();
-        }
-      });
-    });
-
+    await ensureConnection();
+    const { message_id } = await CryptService.encrypt(inputMessage.value);
+    outputMessage.value = await waitForMessage(message_id);
     toast.add({ severity: 'success', summary: 'Başarılı', detail: 'Mesaj şifrelendi', life: 3000 });
   } catch (error) {
     console.error('Şifreleme hatası:', error);
@@ -171,46 +66,14 @@ const handleDecrypt = async () => {
   try {
     let encryptedData;
     try {
-      // Gelen string'i JSON objesine çevir
       encryptedData = JSON.parse(inputMessage.value);
     } catch {
       throw new Error('Geçersiz şifreli mesaj formatı');
     }
 
-    const response = await fetch('http://localhost:8081/decrypt', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authStore.token}`
-      },
-      body: JSON.stringify(encryptedData)
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Şifre çözme başarısız');
-    }
-    
-    const { message_id } = await response.json();
-    console.log('Mesaj ID:', message_id); // Debug için
-
-    // WebSocket üzerinden cevabı bekle
-    await new Promise((resolve, reject) => {
-      const timeoutId = setTimeout(() => {
-        messageCallbacks.delete(message_id);
-        reject(new Error('İşlem zaman aşımına uğradı'));
-      }, 30000);
-
-      messageCallbacks.set(message_id, (result) => {
-        clearTimeout(timeoutId);
-        if (result.error) {
-          reject(new Error(result.error));
-        } else {
-          outputMessage.value = result.data;
-          resolve();
-        }
-      });
-    });
+    await ensureConnection();
+    const { message_id } = await CryptService.decrypt(encryptedData);
+    outputMessage.value = await waitForMessage(message_id);
 
     toast.add({ severity: 'success', summary: 'Başarılı', detail: 'Mesaj çözüldü', life: 3000 });
   } catch (error) {
