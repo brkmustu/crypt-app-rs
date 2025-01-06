@@ -11,17 +11,21 @@ export function useWebSocket() {
     }
 
     console.log('WebSocket bağlantısı kuruluyor...');
-    ws.value = new WebSocket('ws://localhost:8083/ws');
-    
-    ws.value.onopen = () => {
-      console.log('WebSocket bağlantısı açıldı');
-    };
+    try {
+      ws.value = new WebSocket('ws://localhost/ws/crypt/');
+      
+      ws.value.onopen = () => {
+        console.log('WebSocket bağlantısı açıldı');
+      };
 
-    ws.value.onmessage = handleWebSocketMessage;
-    ws.value.onclose = handleWebSocketClose;
-    ws.value.onerror = (error) => {
-      console.error('WebSocket hatası:', error);
-    };
+      ws.value.onmessage = handleWebSocketMessage;
+      ws.value.onclose = handleWebSocketClose;
+      ws.value.onerror = (error) => {
+        console.error('WebSocket hatası:', error);
+      };
+    } catch (error) {
+      console.error('WebSocket bağlantı hatası:', error);
+    }
   };
 
   const handleWebSocketMessage = (event) => {

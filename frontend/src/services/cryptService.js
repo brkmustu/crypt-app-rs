@@ -3,7 +3,7 @@ import { useAuthStore } from '../stores/auth';
 export class CryptService {
   static async encrypt(message) {
     const authStore = useAuthStore();
-    const response = await fetch('http://localhost:8081/encrypt', {
+    const response = await fetch('http://localhost/api/crypt/encrypt', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -21,7 +21,7 @@ export class CryptService {
 
   static async decrypt(encryptedData) {
     const authStore = useAuthStore();
-    const response = await fetch('http://localhost:8081/decrypt', {
+    const response = await fetch('http://localhost/api/crypt/decrypt', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

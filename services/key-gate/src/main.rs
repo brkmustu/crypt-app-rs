@@ -30,7 +30,7 @@ struct Claims {
     iat: i64,
 }
 
-#[post("/auth/login")]
+#[post("/login")]
 async fn login(
     req: web::Json<LoginRequest>,
     data: web::Data<AppState>

@@ -116,19 +116,7 @@ async fn main() -> std::io::Result<()> {
     });
 
     HttpServer::new(move || {
-        let cors = Cors::permissive()
-            .allowed_origin("http://localhost:5173")
-            .allowed_methods(vec!["GET", "POST"])
-            .allowed_headers(vec![
-                http::header::AUTHORIZATION,
-                http::header::ACCEPT,
-                http::header::CONTENT_TYPE,
-            ])
-            .max_age(3600)
-            .supports_credentials();
-
         App::new()
-            .wrap(cors)
             .app_data(app_state.clone())
             .service(encrypt)
             .service(decrypt)
